@@ -19,25 +19,39 @@ if headless:
 driver = webdriver.Firefox(options=firefoxOptions)
 
 
-def find_reputation(element_id):
+def find_reputation():
 	#Parse site specific elements to retrieve different strings
-	elems = driver.find_elements_by_id(element_id)
+	owner_elems = driver.find_elements_by_xpath("//div[contains(@id, 'owner-data-wrapper')]")
+	email_elems = driver.find_elements_by_xpath("//div[contains(@id, 'email-data-wrapper')]")
+	
 	category = ""
-	if len(elems) > 0:
-		if "REPUTATION" in elems[0].text:
-			if "THREAT CATEGORY" in elems[0].text:
-				category = elems[0].text.split("THREAT CATEGORY ")[1].split("\n")[0]
-			if "-" == elems[0].text.split("EMAIL REPUTATION ")[1].split('\n')[0]:
-				return ["Neutral", elems[0].text.split("Legacy)\n")[1].split('|')[0], category]
+	domain = ""
+	owner = ""
+	
+	if len(owner_elems) > 0:
+		if "DOMAIN" in owner_elems[0].text:
+			domain = owner_elems[0].text.split("DOMAIN ")[1].split('\n')[0]
+		if "NETWORK OWNER" in owner_elems[0].text:
+			owner = owner_elems[0].text.split("NETWORK OWNER ")[1].split('\n')[0]
+		hostname = owner_elems[0].text.split("HOSTNAME ")[1].split('\n')[0]
+		if hostname == owner_elems[0].text.split("IP ADDRESS ")[1].split('\n')[0]:
+			hostname = ""
+			
+	if len(email_elems) > 0:
+		if "REPUTATION" in email_elems[0].text:
+			if "THREAT CATEGORY" in email_elems[0].text:
+				category = email_elems[0].text.split("THREAT CATEGORY ")[1].split("\n")[0]
+			if "-" == email_elems[0].text.split("EMAIL REPUTATION ")[1].split('\n')[0]:
+				return ["Neutral", email_elems[0].text.split("Legacy)\n")[1].split('|')[0], category, domain, owner, hostname]
 			else:
-				return [elems[0].text.split("EMAIL REPUTATION ")[1].split('\n')[0], elems[0].text.split("Legacy)\n")[1].split('|')[0], category]
+				return [email_elems[0].text.split("EMAIL REPUTATION ")[1].split('\n')[0], email_elems[0].text.split("Legacy)\n")[1].split('|')[0], category, domain, owner, hostname]
+	
+	return ["Not Found", "Not Found", "", "", "", ""] #return default values if element not found
 
 
 def browse():
 	i = 0
-	for email in _emails.keys():
-		_reputations[email] = ["Not Found", "Not Found", ""] #Prep dict with default values
-		
+	for email in _emails.keys():		
 		#add suffix for ordinal representation. adapted from florian brucker on stackoverflow.
 		suffix = ['th', 'st', 'nd', 'rd', 'th'][min((i+1) % 10, 4)]
 		if 11 <= (i+1)%100 <= 13: #teen numbers all end in th
@@ -65,7 +79,7 @@ def browse():
 			
 		sleep(0.5) #give time for page to load tables
 		
-		_reputations[email] = find_reputation("email-data-wrapper")
+		_reputations[email] = find_reputation()
 		i+=1
 		
 		if headless: #close window once information is found to save memory
@@ -94,14 +108,23 @@ def main():
 	browse()
 	
 	for email in _emails.keys():
-		if email not in _reputations.keys(): #this may happen if site did not load in time. Need to overhaul code to specificially wait for an element rather than an amount of time.
-			print("Could not find information on " + email + ". You can try again")
+		#this may happen if site did not load in time. Need to overhaul code to specificially wait for an element rather than an amount of time.
+		if "Not Found" in _reputations[email]: 
+			#issues with firefox service not running may be causing it to run slower, and elements are not being found on first pass
+			print("Could not find information on " + email + ". This is likely to happen the first time you run the program. You can try again.")
 			continue
-		print("\nIP source from " + str(email))
+			
+		print("\nInformation on IP source from " + str(email))
 		print("Email reputation: " + _reputations[email][0])
 		print("Web reputation: " + _reputations[email][1])
 		if _reputations[email][2] != "":
 			print("Malicious activity congruent with: " + _reputations[email][2])
+		if _reputations[email][3] != "":
+			print("Domain: " + _reputations[email][3])
+		if _reputations[email][4] != "":
+			print("Owner: " + _reputations[email][4])
+		if _reputations[email][5] != "":
+			print("Hostname: " + _reputations[email][5])	
 			
 	if headless: #close final window
 		driver.close() 
