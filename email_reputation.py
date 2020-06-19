@@ -2,6 +2,9 @@ from selenium import webdriver
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.firefox.firefox_binary import FirefoxBinary
 from selenium.webdriver.firefox.options import Options
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
 from fnmatch import fnmatch
 from time import sleep
 import os
@@ -17,6 +20,7 @@ firefoxOptions = Options()
 if headless:
 	firefoxOptions.add_argument("--headless")
 driver = webdriver.Firefox(options=firefoxOptions)
+wait = WebDriverWait(driver, 10) #when called, driver will wait for condition up to 10 seconds
 
 
 def find_reputation():
@@ -33,9 +37,10 @@ def find_reputation():
 			domain = owner_elems[0].text.split("DOMAIN ")[1].split('\n')[0]
 		if "NETWORK OWNER" in owner_elems[0].text:
 			owner = owner_elems[0].text.split("NETWORK OWNER ")[1].split('\n')[0]
-		hostname = owner_elems[0].text.split("HOSTNAME ")[1].split('\n')[0]
-		if hostname == owner_elems[0].text.split("IP ADDRESS ")[1].split('\n')[0]:
-			hostname = ""
+		if "HOSTNAME" in owner_elems[0].text:	
+			hostname = owner_elems[0].text.split("HOSTNAME ")[1].split('\n')[0]
+			if hostname == owner_elems[0].text.split("IP ADDRESS ")[1].split('\n')[0]:
+				hostname = ""
 			
 	if len(email_elems) > 0:
 		if "REPUTATION" in email_elems[0].text:
@@ -49,24 +54,16 @@ def find_reputation():
 	return ["Not Found", "Not Found", "", "", "", ""] #return default values if element not found
 
 
-def browse():
-	i = 0
-	for email in _emails.keys():		
-		#add suffix for ordinal representation. adapted from florian brucker on stackoverflow.
-		suffix = ['th', 'st', 'nd', 'rd', 'th'][min((i+1) % 10, 4)]
-		if 11 <= (i+1)%100 <= 13: #teen numbers all end in th
-			suffix = 'th'
-			
-		print("Finding reputation of " + str(i+1) + suffix +" email sender...")
-
+def browse(email):
+	
 		if headless:
 			driver.get(sites[0])
 		else: #use a new window for each search
-			if i == 0:
+			if _emails.keys().index(email, 0, len(_emails.keys())) == 0:
 				driver.get(sites[0])
 			else:
 				driver.execute_script("window.open('');")
-				driver.switch_to.window(driver.window_handles[i])
+				driver.switch_to.window(driver.window_handles[-1])
 				driver.get(sites[0])
 		
 		#enter the ip into the search field
@@ -79,8 +76,11 @@ def browse():
 			
 		sleep(0.5) #give time for page to load tables
 		
+		#element = wait.until(EC.presence_of_element_located((By.ID, "email-data-wrapper")))
+		#print(element.text)
+		
 		_reputations[email] = find_reputation()
-		i+=1
+		
 		
 		if headless: #close window once information is found to save memory
 			driver.execute_script("window.open('');")
@@ -104,14 +104,28 @@ def main():
 					_emails[email] = line.split('client-ip=')[1].split(';')[0]
 					break
 		
-	print("Starting browser...")
-	browse()
+	#print("Starting browser...")
+	i = 0
+	for email in _emails.keys():		
+		#add suffix for ordinal representation. adapted from florian brucker on stackoverflow.
+		suffix = ['th', 'st', 'nd', 'rd', 'th'][min((i+1) % 10, 4)]
+		if 11 <= (i+1)%100 <= 13: #teen numbers all end in th
+			suffix = 'th'
+			
+		print("Finding reputation of " + str(i+1) + suffix +" email sender...")
+
+		browse(email)
+		i += 1
 	
 	for email in _emails.keys():
 		#this may happen if site did not load in time. Need to overhaul code to specificially wait for an element rather than an amount of time.
 		if "Not Found" in _reputations[email]: 
-			#issues with firefox service not running may be causing it to run slower, and elements are not being found on first pass
-			print("Could not find information on " + email + ". This is likely to happen the first time you run the program. You can try again.")
+			#elements may not being found on first pass. Could be due to the site being cached after the first attempt.
+			print("Could not find information on " + email + ". Trying again.")
+			browse(email)
+			
+		if "Not Found" in _reputations[email]:
+			print("Still could not find information.")
 			continue
 			
 		print("\nInformation on IP source from " + str(email))
