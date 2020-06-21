@@ -3,25 +3,32 @@ from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.firefox.firefox_binary import FirefoxBinary
 from selenium.webdriver.firefox.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from fnmatch import fnmatch
-from time import sleep
+from time import sleep, time
 import os
 
-headless = True #set to False if inspecting the browser is required
+_headless = True #set to False if inspecting the browser is required
 
-_emails = {}
-_reputations = {}
-sites = ["https://talosintelligence.com/","https://www.ipalyzer.com/","https://www.riskiq.com/"] #support for other sources not yet implemented
-
+_emails = {} # {email_name: ip}
+_reputations = {} # {email_name: [email rep, web rep, threat category, domain, owner, hostname]}
+_sites = ["https://talosintelligence.com/","https://www.ipalyzer.com/","https://www.riskiq.com/"] #support for other sources not yet implemented
+_attatchments = {} # {email_name: {file_name: base64 first line of file}}
+_images = {} # {email_name: img src}
+_knownSignatures = {"JVBERi0": "pdf", "R0lGODlh": "gif", "R0lGODdh": "gif", "iVBORw0KGgo": "png", "/9j/2w==": "jpg", "TVo=": "exe", "UEsDBA==": "zip", "f0VMRg==": "elf" , "0M8R4KGxGuE=": "microsoft office file (doc, ppt, etc)", "dXN0YXIAMDA=": "tar", "dXN0YXIgIAA=": "tar", "N3q8rycc": "7zip", "H4s=": "gzip", "PD94bWwg": "xml", "UmVjZWl2ZWQ=": "eml"
+}
+_emailSignatures = {} # {email_name: 
 
 firefoxOptions = Options()
-if headless:
+if _headless:
 	firefoxOptions.add_argument("--headless")
 driver = webdriver.Firefox(options=firefoxOptions)
-wait = WebDriverWait(driver, 10) #when called, driver will wait for condition up to 10 seconds
 
+def check_signature(b64):
+	for sig in _knownSignatures.keys():
+		if b64.startswith(sig):
+			return _knownSignatures[sig];
+	return "unknown"
 
 def find_reputation():
 	#Parse site specific elements to retrieve different strings
@@ -55,38 +62,41 @@ def find_reputation():
 
 
 def browse(email):
-	
-		if headless:
-			driver.get(sites[0])
+		if _headless:
+			driver.get(_sites[0])
 		else: #use a new window for each search
 			if _emails.keys().index(email, 0, len(_emails.keys())) == 0:
-				driver.get(sites[0])
+				driver.get(_sites[0])
 			else:
 				driver.execute_script("window.open('');")
 				driver.switch_to.window(driver.window_handles[-1])
-				driver.get(sites[0])
+				driver.get(_sites[0])
 		
 		#enter the ip into the search field
 		elem = driver.find_element_by_name("search")
 		elem.clear()
 		elem.send_keys(_emails[email] + Keys.RETURN)
 		
-		while "Reputation Lookup" not in driver.title:
+		stopwatch = 0
+		while "Reputation Lookup" not in driver.title and stopwatch <= 10:
 			sleep(1) #wait for DDoS protection to complete
+			stopwatch += 1
+		
+		if stopwatch > 10:
+			print("Timeout while browsing for " + email)
+			_reputations[email] = ["Not Found", "Not Found", "", "", "", ""]
+			driver.close()
+			return
 			
 		sleep(0.5) #give time for page to load tables
 		
-		#element = wait.until(EC.presence_of_element_located((By.ID, "email-data-wrapper")))
-		#print(element.text)
-		
 		_reputations[email] = find_reputation()
 		
-		
-		if headless: #close window once information is found to save memory
+		if _headless: #close window once information is found to save memory
 			driver.execute_script("window.open('');")
 			driver.close()
 			driver.switch_to.window(driver.window_handles[0])
-
+			
 
 def main():
 	#find all email files in current directory
@@ -94,16 +104,58 @@ def main():
 		if fnmatch(file, "*.eml"):
 			_emails[file] = ""
 	print("Found " + str(len(_emails.keys())) + " emails.\nFinding IPs...")
-
+	
 	#find the sender's ip in each email file
 	for email in _emails.keys():
+		incompleteLink = False
+		attatchmentFound = False
+		mimeTypeLine = False
+		previousAttatchment = ""
 		with open(email, 'r') as f:
 			lines = f.readlines()
 			for line in lines:
 				if 'client-ip' in line:
 					_emails[email] = line.split('client-ip=')[1].split(';')[0]
-					break
-		
+					
+				if mimeTypeLine:
+					_attatchments[email][previousAttatchment] = line
+					previousAttatchment = ""
+					mimeTypeLine = False
+					attatchmentFound = False
+					
+				if attatchmentFound and line.startswith("\n"):
+					mimeTypeLine = True
+				
+				if "Content-Type: " in line and "name" in line:
+					attatchmentFound = True
+					previousAttatchment = line.split("\"")[1]
+					if email in _attatchments.keys():
+						if line.split('\"')[1] in _attatchments[email].keys(): #if the attatchment has the same name as a previous one, append epoch
+							_attatchments[email][line.split('\"')[1].join(time())] = ""
+						else:
+							_attatchments[email][line.split("\"")[1]] = ""
+					else:
+						_attatchments[email] = {}
+						_attatchments[email][line.split("\"")[1]] = ""
+				
+				if incompleteLink:
+					if '\"' in line:
+						_images[email][-1] = _images[email][-1] + line.split('\"')[0]
+						incompleteLink = False
+					else:
+						_images[email][-1] = _images[email][-1] + line
+				
+				if "img src" in line:
+					line = line.split("<img src")[1]
+					if '>' not in line:
+						incompleteLink = True
+						line = line.split('=\n')[0]
+					if email in _images.keys():
+						_images[email].append(line.split("\"")[1])
+					else:
+						_images[email] = [line.split("\"")[1]]
+				
+					
 	#print("Starting browser...")
 	i = 0
 	for email in _emails.keys():		
@@ -112,23 +164,22 @@ def main():
 		if 11 <= (i+1)%100 <= 13: #teen numbers all end in th
 			suffix = 'th'
 			
-		print("Finding reputation of " + str(i+1) + suffix +" email sender...")
+		print("\nFinding reputation of " + str(i+1) + suffix +" email sender...")
 
 		browse(email)
-		i += 1
-	
-	for email in _emails.keys():
+		
+		
+
 		#this may happen if site did not load in time. Need to overhaul code to specificially wait for an element rather than an amount of time.
 		if "Not Found" in _reputations[email]: 
 			#elements may not being found on first pass. Could be due to the site being cached after the first attempt.
-			print("Could not find information on " + email + ". Trying again.")
 			browse(email)
 			
 		if "Not Found" in _reputations[email]:
-			print("Still could not find information.")
+			print("Could not find information on " + email)
 			continue
 			
-		print("\nInformation on IP source from " + str(email))
+		print("Information on IP source from " + str(email))
 		print("Email reputation: " + _reputations[email][0])
 		print("Web reputation: " + _reputations[email][1])
 		if _reputations[email][2] != "":
@@ -139,8 +190,19 @@ def main():
 			print("Owner: " + _reputations[email][4])
 		if _reputations[email][5] != "":
 			print("Hostname: " + _reputations[email][5])	
+		
+		if email in _images.keys():
+			for img in _images[email]:
+				print("Image link: " + img)
+				
+		if email in _attatchments.keys():
+			for attatchmentName in _attatchments[email]:
+				attatchmentType = check_signature(_attatchments[email][attatchmentName])
+				print(attatchmentName + " appears to be a " + attatchmentType)
 			
-	if headless: #close final window
+		i += 1	
+		
+	if _headless: #close final window
 		driver.close() 
 	else: #wait for user to finish inspecting browser
 		print("\nPress enter to close tabs\n")
