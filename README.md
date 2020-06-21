@@ -1,5 +1,5 @@
 # EmailReputation
-Searches current directory for emails in the .eml file format and pulls IPs from them to retrieve the reputation data on that IP. These files can be obtained from gmail by opening the email and selecting 'show original' from the triple dot more button. 
+Searches current directory for emails in the .eml file format and pulls IPs from them to retrieve the reputation data on that IP. It will also return links for embedded images and a type check for attatchments. These files can be obtained from gmail by opening the email and selecting 'show original' from the triple dot more button. 
 Note: This method does require opening the email first, which may not be safe. Seek other analysis methods if you don't trust an email before opening it.
 
 # Requirements
@@ -23,7 +23,7 @@ headless = False
 This will prevent the program from closing out the firefox tab once a search is complete.
 
 # Included .eml Files
-Some of the included email files are taken from actual emails that I received or were IPs that I wanted to test for specifically. They have been stripped down to only include the IP of the sender as to allow the sender's and receiver's information to stay secure. This program will find an IP so long as there is a line in the email header that contains a 'client-ip'
+Some of the included email files are taken from actual emails that I received or were IPs that I wanted to test for specifically. They have been stripped down to only include selected information. This program will find an IP so long as there is a line in the email header that contains a 'client-ip' value.
 
 # Disclaimer
 I do not own the site that is checking the IP addresses and do not guarantee that an email is safe simply because it returns a positive reputation.
